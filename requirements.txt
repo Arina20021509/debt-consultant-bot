@@ -1,3 +1,4 @@
 gigachat==0.2.3
 python-dotenv
 openpyxl
+python-telegram-bot==22.8

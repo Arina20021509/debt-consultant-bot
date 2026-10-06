@@ -7,15 +7,12 @@
   /exit   — выйти
 """
 
-from . import config, kb, llm, prompts
-from .qualify import Qualification, wants_to_apply
+from . import kb
+from .dialog import Dialog
 
 
 def main() -> None:
-    index = kb.load_index()
-    history: list[dict] = []
-    qualification: Qualification | None = None
-    debug = False
+    dialog = Dialog(kb.load_index(), channel="Консоль")
 
     print("Бот-консультант по списанию долгов (демо). Команды: /debug, /заявка, /new, /exit\n")
     print("Бот: Здравствуйте! Я помогу разобраться, как списать долги. Что вас беспокоит?\n")
@@ -30,43 +27,20 @@ def main() -> None:
         if text == "/exit":
             break
         if text == "/debug":
-            debug = not debug
-            print(f"[режим отладки {'включён' if debug else 'выключен'}]\n")
+            dialog.debug = not dialog.debug
+            print(f"[режим отладки {'включён' if dialog.debug else 'выключен'}]\n")
             continue
         if text == "/new":
-            history, qualification = [], None
+            dialog.reset()
             print("[новый диалог]\n")
             continue
 
-        # Идёт оформление заявки: ответ клиента обрабатывает workflow, а не консультант
-        if qualification:
-            reply, finished = qualification.handle(text)
-            if debug:
-                print(f"  [данные заявки] {qualification.lead}\n")
-            print(f"Бот: {reply}\n")
-            if finished:
-                print("  [заявка сохранена в data/leads.xlsx]\n")
-                qualification = None
-            continue
-
-        if wants_to_apply(text):
-            qualification = Qualification()
-            print(f"Бот: {qualification.first_question()}\n")
-            continue
-
-        previous = history[-2]["content"] if history else ""
-        query, found = kb.retrieve(index, text, previous)
-        if debug:
-            print(f"  [запрос для поиска] {query}")
-            for score, chunk in found:
-                print(f"  {score:.3f}  {chunk.title}")
-            print()
-
-        answer = llm.complete(prompts.build_messages(history, text, found))
-        print(f"Бот: {answer}\n")
-
-        history += [{"role": "user", "content": text}, {"role": "assistant", "content": answer}]
-        history = history[-config.HISTORY_MESSAGES:]
+        reply = dialog.reply(text)
+        if dialog.debug and reply.debug:
+            print(f"  {reply.debug.replace(chr(10), chr(10) + '  ')}\n")
+        print(f"Бот: {reply.text}\n")
+        if reply.lead:
+            print("  [заявка сохранена в data/leads.xlsx]\n")
 
 
 if __name__ == "__main__":

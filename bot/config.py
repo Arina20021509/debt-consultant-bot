@@ -18,6 +18,10 @@ GIGACHAT_MODEL = os.getenv("GIGACHAT_MODEL", "GigaChat-3-Pro")
 # Путь к сертификату НУЦ Минцифры. Если пусто, проверка сертификата отключается (только для демо).
 GIGACHAT_CA_BUNDLE = os.getenv("GIGACHAT_CA_BUNDLE", "")
 
+# Telegram-бот: токен от @BotFather и (необязательно) чат, куда приходят новые заявки
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_ADMIN_CHAT_ID = os.getenv("TELEGRAM_ADMIN_CHAT_ID", "")
+
 # Способ поиска по базе знаний: bm25 (бесплатно, локально) или embeddings (платно в GigaChat)
 RETRIEVER = os.getenv("RETRIEVER", "bm25")
 
