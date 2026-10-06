@@ -54,8 +54,10 @@ def main() -> None:
             print(f"Бот: {qualification.first_question()}\n")
             continue
 
-        found = kb.search(index, text)
+        previous = history[-2]["content"] if history else ""
+        query, found = kb.retrieve(index, text, previous)
         if debug:
+            print(f"  [запрос для поиска] {query}")
             for score, chunk in found:
                 print(f"  {score:.3f}  {chunk.title}")
             print()

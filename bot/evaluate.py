@@ -45,7 +45,7 @@ def main() -> None:
     out_kb = [c for c in cases if c["expected"] == "—"]
 
     for number, case in enumerate(cases, 1):
-        found = kb.search(index, case["question"])
+        _, found = kb.retrieve(index, case["question"])
         answer = llm.complete(prompts.build_messages([], case["question"], found))
         answer_ok = contains(answer, case["must_contain"])
 
