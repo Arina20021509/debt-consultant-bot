@@ -6,6 +6,11 @@
 """
 
 LANGUAGES = {"ru": "Русский", "uz": "O'zbekcha"}
+# Как язык подписан в заявке для юриста (юрист читает по-русски)
+LANGUAGE_NAMES_RU = {"ru": "русский", "uz": "узбекский"}
+# В какой валюте клиент называет сумму долга
+CURRENCY = {"ru": "RUB", "uz": "UZS"}
+CURRENCY_SIGN = {"RUB": "₽", "UZS": "сум"}
 CHOOSE_LANGUAGE = "Выберите язык / Tilni tanlang"
 
 TEXTS = {
@@ -70,7 +75,7 @@ QUESTIONS = {
     },
     "uz": {
         "name": "Sizga qanday murojaat qilsam bo'ladi?",
-        "debt": "Qarzlaringizning umumiy miqdori taxminan qancha?",
+        "debt": "Qarzlaringizning umumiy miqdori taxminan qancha (so'mda)?",
         "creditors": "Kimlardan qarzdorsiz: banklar, mikromoliya tashkilotlari, soliq, kommunal to'lovlar, xususiy shaxslar?",
         "property": "Mol-mulkingiz bormi: kvartira yoki uy (ipotekada yoki yo'q), mashina, ko'chmas mulkdagi ulush?",
         "contact": "Yurist siz bilan bog'lanishi uchun telefon raqamingiz yoki Telegram'dagi nikingizni qoldiring.",

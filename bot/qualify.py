@@ -28,6 +28,12 @@ FIELDS = [
     ("contact", "телефон или ник в Telegram"),
 ]
 
+# Для клиентов на узбекском сумма долга в сумах — подсказка для извлечения заменяется
+DEBT_DESCRIPTION_UZS = (
+    "общая сумма долгов в узбекских сумах, целое число, валюту не пересчитывай. "
+    "Примеры: «700 ming» → 700000, «1,5 mln» → 1500000, «7 million so'm» → 7000000"
+)
+
 # Поля, которые юрист должен прочитать на русском, даже если клиент отвечал на другом языке
 TRANSLATED_FIELDS = {"creditors", "property"}
 
@@ -105,7 +111,10 @@ def assess(lead: dict) -> str:
     """Предварительная оценка для юриста. Клиенту она не показывается."""
     notes = []
     debt = lead.get("debt")
-    if not isinstance(debt, int):
+    if lead.get("currency", "RUB") != "RUB":
+        # Пороги закона о банкротстве в рублях — суммы в другой валюте с ними сравнивать нельзя
+        notes.append("сумма долга в сумах, пороги по российскому закону (в рублях) не применялись")
+    elif not isinstance(debt, int):
         # Клиент дважды ответил так, что сумму не удалось разобрать, — сохраняем его слова как есть
         notes.append(f"сумма долга не распознана, ответ клиента: «{debt}»" if debt else "сумма долга не указана")
     elif debt < 25_000:
@@ -124,10 +133,12 @@ def assess(lead: dict) -> str:
 
 
 def save_lead(lead: dict) -> None:
-    header = ["Дата", "Канал", "Имя", "Сумма долга, ₽", "Кредиторы", "Имущество", "Контакт", "Оценка для юриста"]
+    header = ["Дата", "Канал", "Имя", "Сумма долга", "Кредиторы", "Имущество", "Контакт", "Оценка для юриста", "Валюта"]
     if LEADS_PATH.exists():
         workbook = load_workbook(LEADS_PATH)
         sheet = workbook.active
+        if sheet.cell(row=1, column=9).value is None:  # файл создан до появления столбца «Валюта»
+            sheet.cell(row=1, column=9, value="Валюта")
     else:
         LEADS_PATH.parent.mkdir(exist_ok=True)
         workbook = Workbook()
@@ -139,6 +150,7 @@ def save_lead(lead: dict) -> None:
         lead.get("channel"),
         lead.get("name"), lead.get("debt"), lead.get("creditors"),
         lead.get("property"), lead.get("contact"), lead.get("assessment"),
+        lead.get("currency", "RUB"),
     ])
     workbook.save(LEADS_PATH)
 
@@ -151,7 +163,7 @@ class Qualification:
     def __init__(self, channel: str = "Консоль", lang: str = "ru"):
         self.step = 0
         self.lang = lang
-        self.lead: dict = {"channel": channel}
+        self.lead: dict = {"channel": channel, "currency": i18n.CURRENCY.get(lang, "RUB")}
         self.retried = False
 
     @property
@@ -167,6 +179,8 @@ class Qualification:
     def handle(self, answer: str) -> tuple[str, bool]:
         """Принимает ответ клиента. Возвращает (реплика бота, заявка завершена)."""
         field, description = FIELDS[self.step]
+        if field == "debt" and self.lead.get("currency") == "UZS":
+            description = DEBT_DESCRIPTION_UZS
         question = self._question(self.step)
         value = extract(field, question, description, answer)
         # Без контакта заявка бесполезна, поэтому его переспрашиваем, пока не получим

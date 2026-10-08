@@ -41,7 +41,7 @@ class Dialog:
         if self.applied:
             return Reply(i18n.t(self.lang, "already_applied"))
         # Юрист видит язык клиента прямо в поле «Канал»
-        channel = f"{self.channel}, {i18n.LANGUAGES[self.lang]}" if self.lang != "ru" else self.channel
+        channel = f"{self.channel}, {i18n.LANGUAGE_NAMES_RU[self.lang]}" if self.lang != "ru" else self.channel
         self.qualification = Qualification(channel=channel, lang=self.lang)
         return Reply(self.qualification.first_question())
 

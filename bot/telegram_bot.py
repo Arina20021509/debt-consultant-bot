@@ -60,17 +60,25 @@ def _keyboard(dialog: Dialog):
     return ReplyKeyboardMarkup([[i18n.t(lang, "apply_button")]], resize_keyboard=True)
 
 
+def _format_debt(debt, currency: str | None) -> str:
+    sign = i18n.CURRENCY_SIGN.get(currency or "RUB", "₽")
+    return f"{debt:,} {sign}".replace(",", " ") if isinstance(debt, int) else str(debt)
+
+
 def _format_lead(lead: dict, user) -> str:
-    debt = f"{lead['debt']:,} ₽".replace(",", " ") if isinstance(lead.get("debt"), int) else lead.get("debt")
+    debt = _format_debt(lead.get("debt"), lead.get("currency"))
+    contact = str(lead.get("contact"))
+    if user.username and f"@{user.username}" != contact:
+        contact += f" (в Telegram: @{user.username})"
     return (
-        "Новая заявка из Telegram\n\n"
+        "Новая заявка\n\n"
+        f"Канал: {lead.get('channel')}\n"
         f"Имя: {lead.get('name')}\n"
         f"Сумма долга: {debt}\n"
         f"Кредиторы: {lead.get('creditors')}\n"
         f"Имущество: {lead.get('property')}\n"
-        f"Контакт: {lead.get('contact')}"
-        + (f" (@{user.username})" if user.username else "")
-        + f"\n\nОценка для юриста: {lead.get('assessment')}"
+        f"Контакт: {contact}\n\n"
+        f"Оценка для юриста: {lead.get('assessment')}"
     )
 
 
@@ -125,10 +133,9 @@ async def leads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = list(load_workbook(LEADS_PATH, read_only=True).active.iter_rows(min_row=2, values_only=True))
     lines = [f"Всего заявок: {len(rows)}. Последние:"]
     for row in rows[-5:]:
-        # Столбцы: дата, канал, имя, сумма, кредиторы, имущество, контакт, оценка
-        date, channel, name, debt, _, _, contact, _ = (list(row) + [None] * 8)[:8]
-        debt_text = f"{debt:,} ₽".replace(",", " ") if isinstance(debt, int) else debt
-        lines.append(f"• {date} — {name}, {debt_text}, {contact} ({channel})")
+        # Столбцы: дата, канал, имя, сумма, кредиторы, имущество, контакт, оценка, валюта
+        date, channel, name, debt, _, _, contact, _, currency = (list(row) + [None] * 9)[:9]
+        lines.append(f"• {date} — {name}, {_format_debt(debt, currency)}, {contact} ({channel})")
     await update.message.reply_text("\n".join(lines))
     with LEADS_PATH.open("rb") as file:
         await update.message.reply_document(file, filename="Заявки.xlsx")
