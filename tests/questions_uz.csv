@@ -1,0 +1,13 @@
+question;expected;must_contain
+MFC orqali bankrotlik qancha turadi?;Внесудебное банкротство через МФЦ → Сколько стоит;bepul
+Qancha qarz bo'lsa, MFC orqali bankrot bo'lish mumkin?;Внесудебное банкротство через МФЦ → Условия по сумме долга;25000&1000000
+Moliyaviy boshqaruvchiga qancha pul to'lash kerak?;Судебное банкротство → Обязательные расходы;25000
+Sud orqali bankrotlik qancha davom etadi?;Судебное банкротство → Сколько длится;6 oy
+Yagona kvartiramni olib qo'yishadimi?;Последствия банкротства → Единственное жильё;ipoteka|garov
+Bankrotlikdan keyin kredit olsa bo'ladimi?;Последствия банкротства → Кредиты после банкротства;5 yil
+Aliment qarzi hisobdan chiqariladimi?;Последствия банкротства → Какие долги не списываются;aliment
+Sud orqali bankrotlik bo'yicha xizmatlaringiz qancha turadi?;Услуги компании (демо-данные) → Сопровождение судебного банкротства;120000
+Konsultatsiya pullikmi?;Услуги компании (демо-данные) → Бесплатная консультация;bepul
+Kredit tarixini qayerdan olsam bo'ladi?;Документы для банкротства → Как получить кредитную историю;gosuslug|госуслуг|davlat xizmat
+Bankrotlikdan keyin qaysi banklar kredit beradi?;—;yurist|юрист|aniqla|konsultatsiya
+Ertaga Moskvada ob-havo qanday bo'ladi?;—;qarz|bankrot

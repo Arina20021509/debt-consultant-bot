@@ -15,11 +15,15 @@
 
 import csv
 import re
+import sys
 
 from . import config, kb, llm, prompts
 
-TESTS_PATH = config.ROOT / "tests" / "questions.csv"
-REPORT_PATH = config.ROOT / "data" / "eval_report.md"
+# Язык → (файл с вопросами, файл отчёта). Запуск на узбекском: python -m bot.evaluate uz
+TEST_SETS = {
+    "ru": (config.ROOT / "tests" / "questions.csv", config.ROOT / "data" / "eval_report.md"),
+    "uz": (config.ROOT / "tests" / "questions_uz.csv", config.ROOT / "data" / "eval_report_uz.md"),
+}
 
 
 def _normalize(text: str) -> str:
@@ -35,9 +39,10 @@ def contains(answer: str, rule: str) -> bool:
     )
 
 
-def main() -> None:
+def main(lang: str = "ru") -> None:
+    tests_path, report_path = TEST_SETS[lang]
     index = kb.load_index()
-    with TESTS_PATH.open(encoding="utf-8") as f:
+    with tests_path.open(encoding="utf-8") as f:
         cases = list(csv.DictReader(f, delimiter=";"))
 
     rows, retrieval_hits, answer_hits, refusal_hits = [], 0, 0, 0
@@ -45,8 +50,8 @@ def main() -> None:
     out_kb = [c for c in cases if c["expected"] == "—"]
 
     for number, case in enumerate(cases, 1):
-        _, found = kb.retrieve(index, case["question"])
-        answer = llm.complete(prompts.build_messages([], case["question"], found))
+        _, found = kb.retrieve(index, case["question"], lang=lang)
+        answer = llm.complete(prompts.build_messages([], case["question"], found, lang))
         answer_ok = contains(answer, case["must_contain"])
 
         if case["expected"] == "—":
@@ -71,7 +76,8 @@ def main() -> None:
     ]
     print("\n" + "\n".join(summary))
 
-    lines = ["# Отчёт о проверке качества", "", *[f"- {s}" for s in summary], "", "## Ошибки", ""]
+    title = "# Отчёт о проверке качества" + (f" ({lang})" if lang != "ru" else "")
+    lines = [title, "", *[f"- {s}" for s in summary], "", "## Ошибки", ""]
     for case, retrieval_ok, answer_ok, answer in rows:
         if answer_ok and retrieval_ok is not False:
             continue
@@ -81,10 +87,10 @@ def main() -> None:
         if not answer_ok:
             problems.append(f"в ответе нет «{case['must_contain']}»")
         lines += [f"**{case['question']}**", f"- Проблема: {'; '.join(problems)}", f"- Ответ бота: {answer}", ""]
-    REPORT_PATH.parent.mkdir(exist_ok=True)
-    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\nОтчёт: {REPORT_PATH}")
+    report_path.parent.mkdir(exist_ok=True)
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"\nОтчёт: {report_path}")
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else "ru")

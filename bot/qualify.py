@@ -12,38 +12,33 @@ from datetime import datetime
 
 from openpyxl import Workbook, load_workbook
 
-from . import config, llm
+from . import config, i18n, llm
 
 LEADS_PATH = config.ROOT / "data" / "leads.xlsx"
 
-# (поле, вопрос клиенту, что извлечь из ответа)
-QUESTIONS = [
-    ("name", "Как к вам обращаться?", "имя клиента, строка"),
-    ("debt", "Какая примерно общая сумма долгов?",
+# (поле, что извлечь из ответа). Сами вопросы на разных языках лежат в i18n.QUESTIONS
+FIELDS = [
+    ("name", "имя клиента, строка"),
+    ("debt",
      "общая сумма долгов в рублях, целое число. Примеры: «1,2 млн» → 1200000, «полтора миллиона» → 1500000, "
-     "«350к» → 350000, «где-то 400» → 400000 (число меньше 1000 без единиц измерения — это тысячи рублей)"),
-    ("creditors", "Кому вы должны: банкам, МФО, налоговой, за ЖКХ, частным лицам?",
-     "список кредиторов через запятую, строка"),
-    ("property", "Есть ли у вас имущество: квартира или дом (в ипотеке или нет), машина, доля в недвижимости?",
-     "имущество клиента кратко, строка; если имущества нет, верни «нет»"),
-    ("contact", "Оставьте номер телефона или ник в Telegram, по которому юрист с вами свяжется.",
-     "телефон или ник в Telegram"),
+     "«350к» → 350000, «где-то 400» → 400000 (число меньше 1000 без единиц измерения — это тысячи рублей), "
+     "по-узбекски: «700 ming» → 700000, «1,5 mln» → 1500000"),
+    ("creditors", "список кредиторов через запятую, на русском языке, строка"),
+    ("property", "имущество клиента кратко, на русском языке, строка; если имущества нет, верни «нет»"),
+    ("contact", "телефон или ник в Telegram"),
 ]
 
-# Что сказать, если ответ не удалось разобрать
-RETRY_HINTS = {
-    "contact": "Напишите, пожалуйста, сам номер телефона (например, +7 999 123-45-67) или ник в Telegram (например, @ivan_petrov).",
-}
+CANCEL = re.compile(r"^(/cancel|отменить заявку|отмена|arizani bekor qilish|bekor qilish)$", re.IGNORECASE)
 
-CANCEL = re.compile(r"^(/cancel|отменить заявку|отмена)$", re.IGNORECASE)
-
-# Фразы, по которым бот понимает, что клиент хочет оставить заявку
+# Фразы, по которым бот понимает, что клиент хочет оставить заявку (русский и узбекский)
 INTENT = re.compile(
-    r"/заявка|запишите|запиши меня|записаться|оставить заявку|хочу на консультацию|перезвоните",
+    r"/заявка|запишите|запиши меня|записаться|оставить заявку|хочу на консультацию|перезвоните"
+    r"|konsultatsiyaga yozil|yozib qo.y|ariza qoldir",
     re.IGNORECASE,
 )
 
 EXTRACT_PROMPT = """Извлеки из ответа клиента значение поля и верни ТОЛЬКО JSON вида {{"value": ...}}.
+Клиент может отвечать на русском или узбекском.
 Поле: {description}.
 Если в ответе нет нужной информации, верни {{"value": null}}.
 
@@ -55,7 +50,8 @@ def wants_to_apply(text: str) -> bool:
     return bool(INTENT.search(text))
 
 
-_MULTIPLIERS = [(r"млн|миллион", 1_000_000), (r"тыс|к\b", 1_000)]
+# «к»/«k» считаем тысячами, только если стоит сразу после числа: «350к», но не «банк»
+_MULTIPLIERS = [(r"млн|миллион|mln|million", 1_000_000), (r"тыс|ming|\d\s*[кk]\b", 1_000)]
 
 
 def _to_int(value) -> int | None:
@@ -117,9 +113,9 @@ def assess(lead: dict) -> str:
         if debt > 500_000:
             notes.append("долг больше 500 000 ₽: при просрочке больше 3 месяцев обязан подать на судебное банкротство")
     property_text = str(lead.get("property") or "").lower()
-    if "ипотек" in property_text:
+    if re.search(r"ипотек|ipoteka", property_text):
         notes.append("есть ипотека, жильё может быть реализовано")
-    if re.search(r"машин|авто|дол[яиюе]", property_text):
+    if re.search(r"машин|авто|дол[яиюе]|mashina|ulush", property_text):
         notes.append("есть имущество, которое может войти в конкурсную массу")
     return "; ".join(notes)
 
@@ -147,37 +143,42 @@ def save_lead(lead: dict) -> None:
 class Qualification:
     """Ведёт клиента по вопросам заявки. Если ответ не удалось разобрать, переспрашивает один раз."""
 
-    def __init__(self, channel: str = "Консоль"):
+    lang = "ru"  # значение по умолчанию для заявок, сохранённых до появления языков
+
+    def __init__(self, channel: str = "Консоль", lang: str = "ru"):
         self.step = 0
+        self.lang = lang
         self.lead: dict = {"channel": channel}
         self.retried = False
 
     @property
     def current_field(self) -> str:
-        return QUESTIONS[self.step][0]
+        return FIELDS[self.step][0]
+
+    def _question(self, step: int) -> str:
+        return i18n.question(self.lang, FIELDS[step][0])
 
     def first_question(self) -> str:
-        return f"Хорошо, оформлю заявку на бесплатную консультацию. {QUESTIONS[0][1]}"
+        return i18n.t(self.lang, "first_question", question=self._question(0))
 
     def handle(self, answer: str) -> tuple[str, bool]:
         """Принимает ответ клиента. Возвращает (реплика бота, заявка завершена)."""
-        field, question, description = QUESTIONS[self.step]
+        field, description = FIELDS[self.step]
+        question = self._question(self.step)
         value = extract(field, question, description, answer)
         # Без контакта заявка бесполезна, поэтому его переспрашиваем, пока не получим
         if value is None and (not self.retried or field == "contact"):
             self.retried = True
-            return RETRY_HINTS.get(field, f"Не совсем поняла ответ. {question}"), False
+            if field == "contact":
+                return i18n.t(self.lang, "retry_contact"), False
+            return i18n.t(self.lang, "retry", question=question), False
         self.lead[field] = value if value is not None else answer
         self.step, self.retried = self.step + 1, False
 
-        if self.step < len(QUESTIONS):
-            return QUESTIONS[self.step][1], False
+        if self.step < len(FIELDS):
+            return self._question(self.step), False
 
         self.lead["assessment"] = assess(self.lead)
         save_lead(self.lead)
         name = self.lead.get("name")
-        thanks = f"Спасибо, {name}!" if name else "Спасибо!"
-        return (
-            f"{thanks} Заявка принята. Юрист перезвонит вам в рабочее время: "
-            "пн–пт, 9:00–20:00 по Москве."
-        ), True
+        return i18n.t(self.lang, "thanks", name=f", {name}" if name else ""), True

@@ -4,7 +4,8 @@
 Если в .env указан TELEGRAM_ADMIN_CHAT_ID, новые заявки приходят в этот чат.
 
 Команды в боте:
-  /start  — приветствие и новый диалог
+  /start  — выбор языка (русский или узбекский) и новый диалог
+  /lang   — сменить язык
   /zayavka — оформить заявку на консультацию
   /debug  — показать, какие фрагменты базы знаний нашёл поиск (только для администратора)
   /leads  — последние заявки и файл Excel (только для администратора)
@@ -19,7 +20,7 @@ from telegram import BotCommand, BotCommandScopeChat, KeyboardButton, ReplyKeybo
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, PicklePersistence, filters
 
-from . import config, kb
+from . import config, i18n, kb
 from .dialog import Dialog
 from .qualify import LEADS_PATH
 
@@ -28,21 +29,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
 INDEX = kb.load_index()
-APPLY_KEYBOARD = ReplyKeyboardMarkup([["Записаться на консультацию"]], resize_keyboard=True)
-CANCEL_KEYBOARD = ReplyKeyboardMarkup([["Отменить заявку"]], resize_keyboard=True)
-SHARE_TELEGRAM = "Связаться в Telegram"
-CONTACT_KEYBOARD = ReplyKeyboardMarkup(
-    [[KeyboardButton("Отправить мой номер", request_contact=True)], [SHARE_TELEGRAM], ["Отменить заявку"]],
-    resize_keyboard=True,
-)
-GREETING = (
-    "Здравствуйте! Я онлайн-консультант по списанию долгов через банкротство (демо-версия).\n\n"
-    "Спросите, например:\n"
-    "• Сколько стоит банкротство через МФЦ?\n"
-    "• Заберут ли единственную квартиру?\n"
-    "• Можно ли брать кредиты после банкротства?\n\n"
-    "Чтобы записаться на бесплатную консультацию, нажмите кнопку внизу."
-)
+LANGUAGE_KEYBOARD = ReplyKeyboardMarkup([list(i18n.LANGUAGES.values())], resize_keyboard=True)
+LANGUAGE_BY_BUTTON = {name: code for code, name in i18n.LANGUAGES.items()}
+SHARE_TELEGRAM_BUTTONS = {i18n.t(code, "share_telegram_button") for code in i18n.LANGUAGES}
 
 
 def _dialog(context: ContextTypes.DEFAULT_TYPE) -> Dialog:
@@ -55,10 +44,20 @@ def _dialog(context: ContextTypes.DEFAULT_TYPE) -> Dialog:
 
 
 def _keyboard(dialog: Dialog):
-    """Кнопки зависят от этапа: вопросы → запись; заявка → отмена; контакт → поделиться номером."""
+    """Кнопки зависят от этапа и языка: вопросы → запись; заявка → отмена; контакт → поделиться номером."""
+    lang = dialog.lang
+    cancel = [i18n.t(lang, "cancel_button")]
     if dialog.qualification:
-        return CONTACT_KEYBOARD if dialog.qualification.current_field == "contact" else CANCEL_KEYBOARD
-    return ReplyKeyboardRemove() if dialog.applied else APPLY_KEYBOARD
+        if dialog.qualification.current_field == "contact":
+            return ReplyKeyboardMarkup(
+                [[KeyboardButton(i18n.t(lang, "share_number_button"), request_contact=True)],
+                 [i18n.t(lang, "share_telegram_button")], cancel],
+                resize_keyboard=True,
+            )
+        return ReplyKeyboardMarkup([cancel], resize_keyboard=True)
+    if dialog.applied:
+        return ReplyKeyboardRemove()
+    return ReplyKeyboardMarkup([[i18n.t(lang, "apply_button")]], resize_keyboard=True)
 
 
 def _format_lead(lead: dict, user) -> str:
@@ -76,9 +75,16 @@ def _format_lead(lead: dict, user) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Новый диалог начинается с выбора языка."""
+    _dialog(context).reset()
+    await update.message.reply_text(i18n.CHOOSE_LANGUAGE, reply_markup=LANGUAGE_KEYBOARD)
+
+
+async def _set_language(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str) -> None:
     dialog = _dialog(context)
+    dialog.lang = lang
     dialog.reset()
-    await update.message.reply_text(GREETING, reply_markup=_keyboard(dialog))
+    await update.message.reply_text(i18n.t(lang, "greeting"), reply_markup=_keyboard(dialog))
 
 
 async def apply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -136,7 +142,7 @@ def _incoming_text(update: Update) -> str:
     message, user = update.message, update.effective_user
     if message.contact:
         return message.contact.phone_number
-    if message.text == SHARE_TELEGRAM:
+    if message.text in SHARE_TELEGRAM_BUTTONS:
         return f"@{user.username}" if user.username else f"Telegram, id {user.id}"
     return message.text
 
@@ -144,10 +150,14 @@ def _incoming_text(update: Update) -> str:
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     dialog = _dialog(context)
     stage = dialog.qualification.current_field if dialog.qualification else "вопросы"
-    log.info("Сообщение от %s, этап: %s", update.effective_user.id, stage)
+    log.info("Сообщение от %s, язык: %s, этап: %s", update.effective_user.id, dialog.lang, stage)
+
+    if update.message.text in LANGUAGE_BY_BUTTON:
+        await _set_language(update, context, LANGUAGE_BY_BUTTON[update.message.text])
+        return
 
     # Кнопку контакта нажали, а заявки нет (например, она была отменена) — предлагаем оформить заново
-    is_contact_button = update.message.contact or update.message.text == SHARE_TELEGRAM
+    is_contact_button = update.message.contact or update.message.text in SHARE_TELEGRAM_BUTTONS
     if is_contact_button and not dialog.qualification:
         reply = dialog.start_application()
         await update.message.reply_text(reply.text, reply_markup=_keyboard(dialog))
@@ -159,7 +169,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply = await asyncio.to_thread(dialog.reply, _incoming_text(update))
     except Exception:
         log.exception("Ошибка при ответе")
-        await update.message.reply_text("Извините, сейчас не получается ответить. Попробуйте через пару минут.")
+        await update.message.reply_text(i18n.t(dialog.lang, "error"))
         return
 
     if dialog.debug and reply.debug and _is_admin(update):
@@ -175,8 +185,9 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _set_menu(app: Application) -> None:
     """Клиенты видят в меню две команды, администратор — ещё и /debug."""
     client_commands = [
-        BotCommand("start", "Начать заново"),
-        BotCommand("zayavka", "Записаться на бесплатную консультацию"),
+        BotCommand("start", "Начать заново / Qaytadan boshlash"),
+        BotCommand("zayavka", "Записаться на консультацию / Konsultatsiyaga yozilish"),
+        BotCommand("lang", "Сменить язык / Tilni o'zgartirish"),
     ]
     await app.bot.set_my_commands(client_commands)
     if config.TELEGRAM_ADMIN_CHAT_ID:
@@ -198,7 +209,7 @@ def main() -> None:
         Application.builder().token(config.TELEGRAM_BOT_TOKEN)
         .persistence(persistence).post_init(_set_menu).build()
     )
-    app.add_handler(CommandHandler(["start", "new"], start))
+    app.add_handler(CommandHandler(["start", "new", "lang"], start))
     app.add_handler(CommandHandler("zayavka", apply))
     app.add_handler(CommandHandler("debug", debug))
     app.add_handler(CommandHandler("myid", my_id))

@@ -7,6 +7,7 @@
   и когда база упоминает расход без конкретной суммы (добавлен после того, как тест поймал выдуманную госпошлину).
 """
 
+from . import i18n
 from .kb import Chunk
 
 SYSTEM_PROMPT = """Ты — онлайн-консультант юридической компании, которая помогает людям списать долги через банкротство.
@@ -39,7 +40,11 @@ SYSTEM_PROMPT = """Ты — онлайн-консультант юридичес
 Ответ: Хороший вопрос, но точного ответа у меня нет — уточню у юриста. Можем записать вас на бесплатную консультацию, там разберут и этот вопрос: просто напишите «запишите меня»."""
 
 
-def build_messages(history: list[dict], question: str, found: list[tuple[float, Chunk]]) -> list[dict]:
+def build_messages(
+    history: list[dict], question: str, found: list[tuple[float, Chunk]], lang: str = "ru"
+) -> list[dict]:
     context = "\n\n".join(chunk.as_context() for _, chunk in found)
     system = f"{SYSTEM_PROMPT}\n\n=== База знаний ===\n{context}\n=== Конец базы знаний ==="
+    if i18n.ANSWER_LANGUAGE.get(lang):
+        system += f"\n\n{i18n.ANSWER_LANGUAGE[lang]}"
     return [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]

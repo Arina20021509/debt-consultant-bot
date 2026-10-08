@@ -4,10 +4,11 @@
   /debug  — показать или скрыть найденные фрагменты базы знаний и разбор заявки
   /заявка — оформить заявку на консультацию
   /new    — начать новый диалог
+  /ru, /uz — переключить язык ответов (русский или узбекский)
   /exit   — выйти
 """
 
-from . import kb
+from . import i18n, kb
 from .dialog import Dialog
 
 
@@ -33,6 +34,11 @@ def main() -> None:
         if text == "/new":
             dialog.reset()
             print("[новый диалог]\n")
+            continue
+        if text in ("/ru", "/uz"):
+            dialog.lang = text[1:]
+            dialog.reset()
+            print(f"[язык: {i18n.LANGUAGES[dialog.lang]}]\n")
             continue
 
         reply = dialog.reply(text)

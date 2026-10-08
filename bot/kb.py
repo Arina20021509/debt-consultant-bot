@@ -143,6 +143,8 @@ REWRITE_PROMPT = """Ты помогаешь искать по базе знан�
 Перепиши вопрос клиента в поисковый запрос: перечисли через пробел ключевые слова, их синонимы
 и юридические термины, которые могут встречаться в тексте базы знаний.
 Например, «сколько платить управляющему» → «стоимость расходы вознаграждение финансовый управляющий депозит».
+База знаний на русском, поэтому ключевые слова пиши ТОЛЬКО на русском языке:
+если вопрос на другом языке (например, на узбекском), переведи его смысл на русский.
 Если вопрос уточняющий, учти предыдущий вопрос клиента.
 Верни только слова, без пояснений.
 
@@ -174,8 +176,25 @@ def search(index: dict, query: str, k: int = config.TOP_K) -> list[tuple[float, 
     return _search_bm25(index, query, k)
 
 
-def retrieve(index: dict, question: str, previous: str = "") -> tuple[str, list[tuple[float, Chunk]]]:
-    """Полный шаг поиска: для BM25 сначала переформулирует вопрос. Возвращает (запрос, фрагменты)."""
+TRANSLATE_PROMPT = """Переведи вопрос клиента на русский язык. Верни только перевод, без пояснений.
+
+Вопрос: {question}"""
+
+
+def translate_to_russian(text: str) -> str:
+    """База знаний на русском, поэтому вопрос на другом языке сначала переводим.
+    Отдельный простой шаг «переведи» модель выполняет надёжнее, чем «переведи и дополни синонимами» за раз:
+    замер на узбекских вопросах — 60% попаданий без отдельного перевода."""
+    return llm.complete([{"role": "user", "content": TRANSLATE_PROMPT.format(question=text)}], temperature=0.1)
+
+
+def retrieve(
+    index: dict, question: str, previous: str = "", lang: str = "ru"
+) -> tuple[str, list[tuple[float, Chunk]]]:
+    """Полный шаг поиска: перевод (если нужен) → переформулирование → поиск. Возвращает (запрос, фрагменты)."""
+    if lang != "ru":
+        question = translate_to_russian(question)
+        previous = translate_to_russian(previous) if previous else ""
     query = rewrite_query(question, previous) if index["retriever"] == "bm25" else question
     return query, search(index, query)
 

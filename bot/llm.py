@@ -1,5 +1,8 @@
 """Работа с GigaChat: ответы модели и эмбеддинги (векторы смысла текста)."""
 
+import time
+
+import httpx
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages, MessagesRole
 
@@ -31,9 +34,24 @@ def _giga() -> GigaChat:
             credentials=config.GIGACHAT_CREDENTIALS,
             scope=config.GIGACHAT_SCOPE,
             model=config.GIGACHAT_MODEL,
+            # GigaChat иногда отвечает медленно: ждём дольше и повторяем запрос при сбое
+            timeout=60,
+            max_retries=2,
             **ssl,
         )
     return _client
+
+
+def _with_retries(call, attempts: int = 3):
+    """GigaChat иногда обрывает соединение. Встроенные повторы библиотеки срабатывают только на коды ошибок,
+    поэтому сетевые сбои повторяем сами: до трёх попыток с паузой."""
+    for attempt in range(attempts):
+        try:
+            return call()
+        except httpx.TransportError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2 * (attempt + 1))
 
 
 def complete(messages: list[dict], temperature: float = 0.2) -> str:
@@ -46,7 +64,7 @@ def complete(messages: list[dict], temperature: float = 0.2) -> str:
         messages=[Messages(role=_ROLES[m["role"]], content=m["content"]) for m in messages],
         temperature=temperature,
     )
-    response = _giga().chat(chat)
+    response = _with_retries(lambda: _giga().chat(chat))
     return response.choices[0].message.content
 
 
@@ -54,6 +72,7 @@ def embed(texts: list[str], batch_size: int = 16) -> list[list[float]]:
     """Превращает тексты в векторы. Похожие по смыслу тексты получают близкие векторы."""
     vectors = []
     for start in range(0, len(texts), batch_size):
-        response = _giga().embeddings(texts[start : start + batch_size])
+        batch = texts[start : start + batch_size]
+        response = _with_retries(lambda: _giga().embeddings(batch))
         vectors.extend(item.embedding for item in sorted(response.data, key=lambda d: d.index))
     return vectors

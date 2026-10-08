@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from . import config, kb, llm, prompts
+from . import config, i18n, kb, llm, prompts
 from .qualify import CANCEL, Qualification, wants_to_apply
 
 
@@ -14,9 +14,12 @@ class Reply:
 
 
 class Dialog:
-    def __init__(self, index: dict, channel: str):
+    lang = "ru"  # значение по умолчанию для диалогов, сохранённых до появления языков
+
+    def __init__(self, index: dict, channel: str, lang: str = "ru"):
         self.index = index
         self.channel = channel
+        self.lang = lang
         self.debug = False
         self.applied = False  # заявка уже отправлена — повторно не оформляем
         self.reset()
@@ -36,9 +39,10 @@ class Dialog:
 
     def start_application(self) -> Reply:
         if self.applied:
-            return Reply("Ваша заявка уже принята, юрист свяжется с вами в рабочее время. "
-                         "А пока можете задать мне любой вопрос о списании долгов.")
-        self.qualification = Qualification(channel=self.channel)
+            return Reply(i18n.t(self.lang, "already_applied"))
+        # Юрист видит язык клиента прямо в поле «Канал»
+        channel = f"{self.channel}, {i18n.LANGUAGES[self.lang]}" if self.lang != "ru" else self.channel
+        self.qualification = Qualification(channel=channel, lang=self.lang)
         return Reply(self.qualification.first_question())
 
     def reply(self, text: str) -> Reply:
@@ -46,7 +50,7 @@ class Dialog:
         if self.qualification:
             if CANCEL.match(text.strip()):
                 self.qualification = None
-                return Reply("Заявку отменила. Если появятся вопросы о списании долгов, задавайте.")
+                return Reply(i18n.t(self.lang, "cancelled"))
             answer, finished = self.qualification.handle(text)
             reply = Reply(answer, debug=f"[данные заявки] {self.qualification.lead}")
             if finished:
@@ -57,12 +61,12 @@ class Dialog:
             return self.start_application()
 
         previous = self.history[-2]["content"] if self.history else ""
-        query, found = kb.retrieve(self.index, text, previous)
+        query, found = kb.retrieve(self.index, text, previous, self.lang)
         debug = "\n".join(
             [f"[запрос для поиска] {query}"] + [f"{score:.1f}  {chunk.title}" for score, chunk in found]
         )
 
-        answer = llm.complete(prompts.build_messages(self.history, text, found))
+        answer = llm.complete(prompts.build_messages(self.history, text, found, self.lang))
         self.history += [{"role": "user", "content": text}, {"role": "assistant", "content": answer}]
         self.history = self.history[-config.HISTORY_MESSAGES:]
         return Reply(answer, debug=debug)
