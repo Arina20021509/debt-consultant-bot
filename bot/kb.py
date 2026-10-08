@@ -176,9 +176,9 @@ def search(index: dict, query: str, k: int = config.TOP_K) -> list[tuple[float, 
     return _search_bm25(index, query, k)
 
 
-TRANSLATE_PROMPT = """Переведи вопрос клиента на русский язык. Верни только перевод, без пояснений.
+TRANSLATE_PROMPT = """Переведи текст клиента на русский язык. Верни только перевод, без пояснений.
 
-Вопрос: {question}"""
+Текст: {question}"""
 
 
 def translate_to_russian(text: str) -> str:

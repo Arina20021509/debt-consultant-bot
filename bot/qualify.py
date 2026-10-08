@@ -12,7 +12,7 @@ from datetime import datetime
 
 from openpyxl import Workbook, load_workbook
 
-from . import config, i18n, llm
+from . import config, i18n, kb, llm
 
 LEADS_PATH = config.ROOT / "data" / "leads.xlsx"
 
@@ -23,10 +23,13 @@ FIELDS = [
      "общая сумма долгов в рублях, целое число. Примеры: «1,2 млн» → 1200000, «полтора миллиона» → 1500000, "
      "«350к» → 350000, «где-то 400» → 400000 (число меньше 1000 без единиц измерения — это тысячи рублей), "
      "по-узбекски: «700 ming» → 700000, «1,5 mln» → 1500000"),
-    ("creditors", "список кредиторов через запятую, на русском языке, строка"),
-    ("property", "имущество клиента кратко, на русском языке, строка; если имущества нет, верни «нет»"),
+    ("creditors", "список кредиторов через запятую, строка"),
+    ("property", "имущество клиента кратко, строка; если имущества нет, верни «нет»"),
     ("contact", "телефон или ник в Telegram"),
 ]
+
+# Поля, которые юрист должен прочитать на русском, даже если клиент отвечал на другом языке
+TRANSLATED_FIELDS = {"creditors", "property"}
 
 CANCEL = re.compile(r"^(/cancel|отменить заявку|отмена|arizani bekor qilish|bekor qilish)$", re.IGNORECASE)
 
@@ -113,7 +116,7 @@ def assess(lead: dict) -> str:
         if debt > 500_000:
             notes.append("долг больше 500 000 ₽: при просрочке больше 3 месяцев обязан подать на судебное банкротство")
     property_text = str(lead.get("property") or "").lower()
-    if re.search(r"ипотек|ipoteka", property_text):
+    if re.search(r"ипоте[кч]|ipotek", property_text):  # «ипотека», «ипотечная», «ipotekada»
         notes.append("есть ипотека, жильё может быть реализовано")
     if re.search(r"машин|авто|дол[яиюе]|mashina|ulush", property_text):
         notes.append("есть имущество, которое может войти в конкурсную массу")
@@ -172,7 +175,11 @@ class Qualification:
             if field == "contact":
                 return i18n.t(self.lang, "retry_contact"), False
             return i18n.t(self.lang, "retry", question=question), False
-        self.lead[field] = value if value is not None else answer
+        value = value if value is not None else answer
+        # Юрист читает заявку на русском. Перевод — отдельным шагом: вместе с извлечением модель его пропускала
+        if self.lang != "ru" and field in TRANSLATED_FIELDS and isinstance(value, str):
+            value = kb.translate_to_russian(value)
+        self.lead[field] = value
         self.step, self.retried = self.step + 1, False
 
         if self.step < len(FIELDS):
