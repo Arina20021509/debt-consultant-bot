@@ -76,7 +76,11 @@ def _format_lead(lead: dict, user) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Новый диалог начинается с выбора языка."""
-    _dialog(context).reset()
+    dialog = _dialog(context)
+    dialog.reset()
+    # Клиент не может оформить заявку повторно, а администратору для тестов /start сбрасывает и эту отметку
+    if _is_admin(update):
+        dialog.applied = False
     await update.message.reply_text(i18n.CHOOSE_LANGUAGE, reply_markup=LANGUAGE_KEYBOARD)
 
 
